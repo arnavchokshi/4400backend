@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flight Tracking System</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #e9ecef;
+      margin: 0;
+      padding: 20px;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 40px;
+      color: #333;
+    }
+
+    .entity-section {
+      background-color: #fff;
+      padding: 20px;
+      margin-bottom: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+      transition: box-shadow 0.2s ease-in-out;
+    }
+
+    .entity-section:hover {
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.12);
+    }
+
+    .entity-section h2 {
+      margin-top: 0;
+      color: #1f4e79;
+      font-size: 1.5em;
+      border-bottom: 2px solid #ccc;
+      padding-bottom: 5px;
+    }
+
+    .form-block {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 12px;
+      align-items: center;
+    }
+
+    input,
+    button {
+      padding: 6px 8px;
+      font-size: 14px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      flex: 0 1 auto;
+      width: auto;
+      max-width: none;
+      margin: 0;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #007bff;
+      box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+    }
+
+    button {
+      background-color: #007bff;
+      color: white;
+      font-weight: bold;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    .scrollable-table {
+      overflow-x: auto;
+      max-height: 300px;
+      overflow-y: auto;
+      margin-top: 15px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 600px;
+    }
+
+    table,
+    th,
+    td {
+      border: 1px solid #ccc;
+    }
+
+    th,
+    td {
+      padding: 10px;
+      text-align: left;
+    }
+
+    th {
+      background-color: #f8f9fa;
+      cursor: pointer;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    .current-label {
+      margin-top: 15px;
+      font-weight: bold;
+      font-size: 1.1em;
+      color: #444;
+    }
+  </style>
+  <script>
+    async function apiCall(url, method = 'GET', body = null) {
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : null,
+      });
+      return res.json();
+    }
+
+    let sortDirections = {};
+
+    async function loadEntity(endpoint, tableId) {
+      const data = await apiCall(`http://127.0.0.1:5000/${endpoint}`);
+      const div = document.getElementById(tableId);
+      if (!Array.isArray(data) || data.length === 0) {
+        div.innerHTML = '<p>No data available.</p>';
+        return;
+      }
+      const keys = Object.keys(data[0]);
+      if (!sortDirections[tableId]) sortDirections[tableId] = {};
+      if (!sortDirections[tableId][keys[0]]) sortDirections[tableId][keys[0]] = 'asc';
+      renderTable(data, div, tableId, keys);
+    }
+
+    function renderTable(data, container, tableId, keys) {
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      keys.forEach((key) => {
+        const th = document.createElement('th');
+        th.textContent = key;
+        th.onclick = () => sortAndRender(data, container, key, tableId, keys);
+        headerRow.appendChild(th);
+      });
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+      const tbody = document.createElement('tbody');
+      data.forEach((row) => {
+        const tr = document.createElement('tr');
+        keys.forEach((key) => {
+          const td = document.createElement('td');
+          td.textContent = row[key];
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      table.appendChild(tbody);
+      container.innerHTML = "<div class='current-label'>Current Data:</div><div class='scrollable-table'></div>";
+      container.querySelector('.scrollable-table').appendChild(table);
+    }
+
+    function sortAndRender(data, container, sortKey, tableId, keys) {
+      const direction = sortDirections[tableId][sortKey] === 'asc' ? 'desc' : 'asc';
+      sortDirections[tableId][sortKey] = direction;
+      data.sort((a, b) => {
+        const valA = a[sortKey];
+        const valB = b[sortKey];
+        const numA = parseInt(String(valA).replace(/\D/g, '')) || 0;
+        const numB = parseInt(String(valB).replace(/\D/g, '')) || 0;
+        if (numA < numB) return direction === 'asc' ? -1 : 1;
+        if (numA > numB) return direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+      renderTable(data, container, tableId, keys);
+    }
+
+    async function createEntity(endpoint, fields, inputPrefix = '') {
+      const data = {};
+      for (const field of fields) {
+        const value = document.getElementById(`${inputPrefix}${field}`).value;
+        if (value !== '') data[field] = isNaN(value) ? value : parseFloat(value);
+      }
+      const result = await apiCall(`http://127.0.0.1:5000/${endpoint}`, 'POST', data);
+      alert(result.message || result.error);
+      window.onload();
+    }
+  </script>
+</head>
+<body>
+  <h1>Flight Tracking System</h1>
+    <!-- Flights -->
+    <div class="entity-section">
+        <h2>Flights</h2>
+    
+        <!-- Create Flight -->
+        <div class="form-block">
+        <h3>Create Flight</h3>
+        <input id="flightID" placeholder="Flight ID">
+        <input id="routeID" placeholder="Route ID">
+        <input id="support_airline" placeholder="Support Airline">
+        <input id="support_tail" placeholder="Support Tail">
+        <input id="cost" type="number" placeholder="Cost">
+        <button onclick="createEntity('create_flight', ['flightID', 'routeID', 'support_airline', 'support_tail', 'cost'])">Create</button>
+        </div>
+    
+        <!-- Remove Flight -->
+        <div class="form-block">
+        <h3>Remove Flight</h3>
+        <input id="cancel_flightID" placeholder="Flight ID">
+        <button onclick="createEntity('cancel_flight', ['flightID'], 'cancel_')">Remove</button>
+        </div>
+    
+        <div id="flights"></div>
+    </div>
+    
+    <!-- Airlines -->
+    <div class="entity-section">
+        <h2>Airlines</h2>
+    
+        <!-- Create Airline -->
+        <div class="form-block">
+        <h3>Create Airline</h3>
+        <input id="airlineID" placeholder="Airline ID">
+        <input id="revenue" type="number" placeholder="Revenue">
+        <button onclick="createEntity('create_airline', ['airlineID', 'revenue'])">Create</button>
+        </div>
+
+        <!-- Remove Airline -->
+        <div class="form-block">
+            <h3>Remove Airline</h3>
+            <input id="cancel_airlineID" placeholder="Airline ID">
+            <button onclick="createEntity('delete_airline', ['airlineID'], 'cancel_')">Remove</button>
+            </div>
+    
+        <div id="airlines"></div>
+    </div>
+    
+    <!-- Persons -->
+    <div class="entity-section">
+        <h2>Persons</h2>
+    
+        <!-- Create Person -->
+        <div class="form-block">
+        <h3>Create Person</h3>
+        <input id="personID" placeholder="Person ID">
+        <input id="first_name" placeholder="First Name">
+        <input id="last_name" placeholder="Last Name">
+        <input id="locationID" placeholder="Location ID">
+        <button onclick="createEntity('create_person', ['personID', 'first_name', 'last_name', 'locationID'])">Create</button>
+        </div>
+
+        <!-- Remove Person -->
+        <div class="form-block">
+            <h3>Remove Person</h3>
+            <input id="cancel_personID" placeholder="Person ID">
+            <button onclick="createEntity('delete_persons', ['personID'], 'cancel_')">Remove</button>
+            </div>
+    
+        <div id="persons"></div>
+    </div>
+    
+    <!-- Airports -->
+    <div class="entity-section">
+        <h2>Airports</h2>
+    
+        <!-- Create Airport -->
+        <div class="form-block">
+        <h3>Create Airport</h3>
+        <input id="airportID" placeholder="Airport ID">
+        <input id="airport_name" placeholder="Airport Name">
+        <input id="city" placeholder="City">
+        <input id="state" placeholder="State">
+        <input id="country" placeholder="Country">
+        <input id="locationID_airport" placeholder="Location ID">
+        <button onclick="createEntity('create_airport', ['airportID', 'airport_name', 'city', 'state', 'country', 'locationID'], 'locationID_')">Create</button>
+        </div>
+    
+        <!-- Remove Airport -->
+        <div class="form-block">
+        <h3>Remove Airport</h3>
+        <input id="delete_airportID" placeholder="Airport ID">
+        <button onclick="createEntity('delete_airport', ['airportID'], 'delete_')">Remove</button>
+        </div>
+    
+        <div id="airports"></div>
+    </div>
+    
+    <!-- Pilots -->
+    <div class="entity-section">
+        <h2>Pilots</h2>
+    
+        <!-- Create Pilot -->
+        <div class="form-block">
+        <h3>Create Pilot</h3>
+        <input id="pilot_personID" placeholder="Person ID">
+        <input id="pilot_airlineID" placeholder="Airline ID">
+        <button onclick="createEntity('create_pilot', ['personID', 'airlineID'], 'pilot_')">Create</button>
+        </div>
+    
+        <!-- Remove Pilot -->
+        <div class="form-block">
+        <h3>Remove Pilot</h3>
+        <input id="delete_personID" placeholder="Person ID">
+        <button onclick="createEntity('delete_pilot', ['personID'], 'delete_')">Remove</button>
+
+        </div>
+    
+        <div id="pilots"></div>
+    </div>
+    
+    <!-- Passengers -->
+    <div class="entity-section">
+        <h2>Passengers</h2>
+    
+        <!-- Add Passenger -->
+        <div class="form-block">
+        <h3>Add Passenger</h3>
+        <input id="passenger_personID" placeholder="Person ID">
+        <input id="passenger_funds" type="number" placeholder="Funds">
+        <button onclick="createEntity('add_passenger', ['personID', 'funds'], 'passenger_')">Add</button>
+        </div>
+    
+        <!-- Remove Passenger -->
+        <div class="form-block">
+        <h3>Remove Passenger</h3>
+        <input id="delete_passengerID" placeholder="Person ID">
+        <button onclick="createEntity('delete_passenger', ['personID'], 'delete_')">Remove</button>
+        </div>
+    
+        <!-- Board Passenger -->
+        <div class="form-block">
+        <h3>Board Passenger</h3>
+        <input id="pid" placeholder="Passenger ID">
+        <input id="fid" placeholder="Flight ID">
+        <button onclick="createEntity('board_passenger', ['pid', 'fid'])">Board</button>
+        </div>
+    
+        <div id="passengers"></div>
+    </div>
+    
+    <!-- Airplanes -->
+    <div class="entity-section">
+        <h2>Airplanes</h2>
+    
+        <!-- Add Airplane -->
+        <div class="form-block">
+        <h3>Add Airplane</h3>
+        <input id="airlineID_plane" placeholder="Airline ID">
+        <input id="tail_num" placeholder="Tail Number">
+        <input id="seat_capacity" type="number" placeholder="Seat Capacity">
+        <input id="speed" type="number" placeholder="Speed">
+        <input id="locationID_plane" placeholder="Location ID">
+        <input id="plane_type" placeholder="Plane Type">
+        <input id="model" placeholder="Model">
+        <button onclick="createEntity('add_airplane', ['airlineID', 'tail_num', 'seat_capacity', 'speed', 'locationID', 'plane_type', 'model'], 'plane_')">Add</button>
+        </div>
+    
+        <!-- Remove Airplane -->
+        <div class="form-block">
+        <h3>Remove Airplane</h3>
+        <input id="delete_tail_num" placeholder="Tail Number">
+        <button onclick="createEntity('delete_airplane', ['tail_num'], 'delete_')">Remove</button>
+        </div>
+    
+        <div id="airplanes"></div>
+    </div>
+    
+  <script>
+    window.onload = () => {
+      loadEntity('flights', 'flights');
+      loadEntity('airports', 'airports');
+      loadEntity('persons', 'persons');
+      loadEntity('pilots', 'pilots');
+      loadEntity('passengers', 'passengers');
+      loadEntity('airplanes', 'airplanes');
+      loadEntity('airlines', 'airlines');
+    };
+  </script>
+</body>
+</html>
