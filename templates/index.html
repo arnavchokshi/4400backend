@@ -80,7 +80,7 @@
 
     .scrollable-table {
       overflow-x: auto;
-      max-height: 300px;
+      max-height: 200px;
       overflow-y: auto;
       margin-top: 15px;
       border: 1px solid #ccc;
@@ -121,6 +121,102 @@
     }
   </style>
   <script>
+    const primaryKeys = {
+      airline: ["airlineID"],
+      airplane: ["airlineID", "tail_num"],
+      airport: ["airportID"],
+      flight: ["flightID"],
+      leg: ["legID"],
+      location: ["locationID"],
+      passenger: ["personID"],
+      passenger_vacations: ["personID", "sequence"],
+      person: ["personID"],
+      pilot: ["personID"],
+      pilot_licenses: ["personID", "license"],
+      route: ["routeID"],
+      route_path: ["routeID", "sequence"]
+    };
+
+    async function loadModifyForm() {
+      const table = document.getElementById("tableSelect").value;
+      const form = document.getElementById("modifyEntityForm");
+      form.innerHTML = "";
+      if (!table) return;
+
+      const response = await fetch(`/table/${table}`);
+      const data = await response.json();
+      if (!data.length) return;
+
+      const allKeys = Object.keys(data[0]);
+      const pkSet = new Set(primaryKeys[table] || []);
+
+      allKeys.forEach(key => {
+        const label = document.createElement("label");
+        label.textContent = pkSet.has(key) ? key + " (required)" : key;
+        const input = document.createElement("input");
+        input.id = `modify_${key}`;
+        input.placeholder = key;
+        input.required = pkSet.has(key);
+        form.appendChild(label);
+        form.appendChild(input);
+      });
+
+      const submitBtn = document.createElement("button");
+      submitBtn.textContent = "Submit Modification";
+      submitBtn.type = "submit";
+      form.appendChild(submitBtn);
+    }
+
+    async function submitModification(event) {
+  event.preventDefault();
+  const table = document.getElementById("tableSelect").value;
+  if (!table) {
+    console.error("No table selected.");
+    return;
+  }
+
+  const inputs = document.querySelectorAll("#modifyEntityForm input");
+  const primary = {};
+  const updates = {};
+  inputs.forEach(input => {
+    if (input.value.trim() !== "") {
+      if ((primaryKeys[table] || []).includes(input.placeholder)) {
+        primary[input.placeholder] = input.value;
+      } else {
+        updates[input.placeholder] = input.value;
+      }
+    }
+  });
+
+  const body = {
+    table,
+    primary_keys: primary,
+    updates
+  };
+
+  console.log("Submitting modification:", body);
+
+  const resultDiv = document.getElementById("modifyEntityResult");
+  try {
+    const response = await fetch("/update_entity", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const result = await response.json();
+    resultDiv.textContent = result.message || result.error;
+    console.log("Server response:", result);
+  } catch (err) {
+    resultDiv.textContent = "Error submitting request.";
+    console.error("Submission failed:", err);
+  }
+}
+
+
+    window.addEventListener("DOMContentLoaded", () => {
+      document.getElementById("tableSelect").addEventListener("change", loadModifyForm);
+    });
+
     async function apiCall(url, method = 'GET', body = null) {
       const res = await fetch(url, {
         method,
@@ -133,7 +229,7 @@
     let sortDirections = {};
 
     async function loadEntity(endpoint, tableId) {
-      const data = await apiCall(`http://127.0.0.1:5000/${endpoint}`);
+      const data = await apiCall(`/${endpoint}`);
       const div = document.getElementById(tableId);
       if (!Array.isArray(data) || data.length === 0) {
         div.innerHTML = '<p>No data available.</p>';
@@ -193,14 +289,219 @@
         const value = document.getElementById(`${inputPrefix}${field}`).value;
         if (value !== '') data[field] = isNaN(value) ? value : parseFloat(value);
       }
-      const result = await apiCall(`http://127.0.0.1:5000/${endpoint}`, 'POST', data);
+      const result = await apiCall(`/${endpoint}`, 'POST', data);
       alert(result.message || result.error);
       window.onload();
     }
+
+    async function loadCustomTable() {
+  const tableName = document.getElementById("customTableSelect").value;
+  const container = document.getElementById("customTableResult");
+  container.innerHTML = "";
+
+  if (!tableName) {
+    container.innerHTML = "<p>Please select a table.</p>";
+    return;
+  }
+
+  try {
+    const res = await fetch(`/table/${tableName}`);
+    const data = await res.json();
+
+    if (!Array.isArray(data) || data.length === 0) {
+      container.innerHTML = "<p>No data found or invalid table.</p>";
+      return;
+    }
+
+    const keys = Object.keys(data[0]);
+    const table = document.createElement("table");
+
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    keys.forEach(key => {
+      const th = document.createElement("th");
+      th.textContent = key;
+      headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    data.forEach(row => {
+      const tr = document.createElement("tr");
+      keys.forEach(key => {
+        const td = document.createElement("td");
+        td.textContent = row[key];
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "scrollable-table";
+    wrapper.appendChild(table);
+
+    container.appendChild(wrapper);
+  } catch (err) {
+    container.innerHTML = `<p>Error loading table: ${err.message}</p>`;
+  }
+}
+
+async function loadTableColumns() {
+  const table = document.getElementById("filterTableSelect").value;
+  const form = document.getElementById("filterInputs");
+  form.innerHTML = "";
+
+  if (!table) return;
+
+  try {
+    const res = await fetch(`/table/${table}`);
+    const data = await res.json();
+
+    if (!Array.isArray(data) || data.length === 0) return;
+
+    const keys = Object.keys(data[0]);
+    keys.forEach(key => {
+      const label = document.createElement("label");
+      label.textContent = key;
+      const input = document.createElement("input");
+      input.placeholder = `e.g. = 'JFK' or > 1000`;
+      input.name = key;
+      form.appendChild(label);
+      form.appendChild(input);
+    });
+  } catch (err) {
+    console.error("Error loading table columns:", err);
+  }
+}
+
+async function filterTable() {
+  const table = document.getElementById("filterTableSelect").value;
+  const inputs = document.querySelectorAll("#filterInputs input");
+
+  const conditions = {};
+  inputs.forEach(input => {
+    const val = input.value.trim();
+    if (val !== "") {
+      conditions[input.name] = val;
+    }
+  });
+
+  const res = await fetch(`/filter_table`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ table, conditions }),
+  });
+
+  const data = await res.json();
+  const container = document.getElementById("filteredTableResult");
+  container.innerHTML = "";
+
+  if (!Array.isArray(data) || data.length === 0) {
+    container.innerHTML = "<p>No matching data found.</p>";
+    return;
+  }
+
+  const keys = Object.keys(data[0]);
+  const tableEl = document.createElement("table");
+
+  const thead = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  keys.forEach(k => {
+    const th = document.createElement("th");
+    th.textContent = k;
+    headerRow.appendChild(th);
+  });
+  thead.appendChild(headerRow);
+  tableEl.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  data.forEach(row => {
+    const tr = document.createElement("tr");
+    keys.forEach(k => {
+      const td = document.createElement("td");
+      td.textContent = row[k];
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  tableEl.appendChild(tbody);
+
+  container.appendChild(tableEl);
+}
+
+
   </script>
 </head>
 <body>
   <h1>Flight Tracking System</h1>
+
+
+    <div class="entity-section">
+      <h2>Modify Entity</h2>
+      <div class="form-block">
+        <label for="tableSelect"><strong>Select a Table:</strong></label>
+        <select id="tableSelect">
+          <option value="">-- Choose a table --</option>
+          <option value="airline">airline</option>
+          <option value="airplane">airplane</option>
+          <option value="airport">airport</option>
+          <option value="flight">flight</option>
+          <option value="leg">leg</option>
+          <option value="location">location</option>
+          <option value="passenger">passenger</option>
+          <option value="passenger_vacations">passenger_vacations</option>
+          <option value="person">person</option>
+          <option value="pilot">pilot</option>
+          <option value="pilot_licenses">pilot_licenses</option>
+          <option value="route">route</option>
+          <option value="route_path">route_path</option>
+        </select>
+      </div>
+      <form id="modifyEntityForm" class="form-block" onsubmit="submitModification(event)">
+        <!-- Dynamic input fields will appear here -->
+      </form>
+      <div id="modifyEntityResult"></div>
+    </div>
+
+
+
+    <!-- View Table with Filters -->
+    <div class="entity-section">
+      <h2>View Table with Filters</h2>
+      <div class="form-block">
+        <label for="filterTableSelect"><strong>Select a Table:</strong></label>
+        <select id="filterTableSelect" onchange="loadTableColumns()">
+          <option value="">-- Choose a table --</option>
+          <option value="airline">airline</option>
+          <option value="airplane">airplane</option>
+          <option value="airport">airport</option>
+          <option value="flight">flight</option>
+          <option value="leg">leg</option>
+          <option value="location">location</option>
+          <option value="passenger">passenger</option>
+          <option value="passenger_vacations">passenger_vacations</option>
+          <option value="person">person</option>
+          <option value="pilot">pilot</option>
+          <option value="pilot_licenses">pilot_licenses</option>
+          <option value="route">route</option>
+          <option value="route_path">route_path</option>
+        </select>
+        <button onclick="filterTable()">Filter</button>
+      </div>
+
+      <form id="filterInputs" class="form-block">
+        <!-- filter inputs dynamically added here -->
+      </form>
+
+      <div id="filteredTableResult"></div>
+    </div>
+
+        
+
+    
+        
     <!-- Flights -->
     <div class="entity-section">
         <h2>Flights</h2>
@@ -222,8 +523,8 @@
         <input id="cancel_flightID" placeholder="Flight ID">
         <button onclick="createEntity('cancel_flight', ['flightID'], 'cancel_')">Remove</button>
         </div>
-    
-        <div id="flights"></div>
+
+
     </div>
     
     <!-- Airlines -->
@@ -244,8 +545,7 @@
             <input id="cancel_airlineID" placeholder="Airline ID">
             <button onclick="createEntity('delete_airline', ['airlineID'], 'cancel_')">Remove</button>
             </div>
-    
-        <div id="airlines"></div>
+  
     </div>
     
     <!-- Persons -->
@@ -269,7 +569,6 @@
             <button onclick="createEntity('delete_persons', ['personID'], 'cancel_')">Remove</button>
             </div>
     
-        <div id="persons"></div>
     </div>
     
     <!-- Airports -->
@@ -295,7 +594,6 @@
         <button onclick="createEntity('delete_airport', ['airportID'], 'delete_')">Remove</button>
         </div>
     
-        <div id="airports"></div>
     </div>
     
     <!-- Pilots -->
@@ -318,7 +616,6 @@
 
         </div>
     
-        <div id="pilots"></div>
     </div>
     
     <!-- Passengers -->
@@ -348,7 +645,6 @@
         <button onclick="createEntity('board_passenger', ['pid', 'fid'])">Board</button>
         </div>
     
-        <div id="passengers"></div>
     </div>
     
     <!-- Airplanes -->
@@ -375,8 +671,25 @@
         <button onclick="createEntity('delete_airplane', ['tail_num'], 'delete_')">Remove</button>
         </div>
     
-        <div id="airplanes"></div>
     </div>
+
+    <!-- Pilot Licenses -->
+    <div class="entity-section">
+        <h2>Pilot Licenses</h2>
+    
+        <!-- Grant/Revoke License -->
+        <div class="form-block">
+        <h3>Grant or Revoke License</h3>
+        <input id="license_personID" placeholder="Person ID">
+        <input id="license_plane_type" placeholder="Plane Type">
+        <input id="license_skids" placeholder="Skids (true or false)">
+        <input id="license_propellers" placeholder="Propellers" type="number">
+        <input id="license_jet_engines" placeholder="Jet Engines" type="number">
+        <button onclick="createEntity('toggle_pilot_license', ['personID', 'plane_type', 'skids', 'propellers', 'jet_engines'], 'license_')">Toggle License</button>
+        </div>
+
+    </div>
+    
     
   <script>
     window.onload = () => {
@@ -385,9 +698,11 @@
       loadEntity('persons', 'persons');
       loadEntity('pilots', 'pilots');
       loadEntity('passengers', 'passengers');
-      loadEntity('airplanes', 'airplanes');
       loadEntity('airlines', 'airlines');
+      loadEntity('airplanes', 'airplanes');
+      loadEntity('pilot_licenses', 'pilot_licenses');
     };
   </script>
 </body>
-</html>
+</html>"
+

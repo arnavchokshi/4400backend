@@ -1,10 +1,12 @@
-from flask import Flask, jsonify, request
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 import mysql.connector
 from datetime import timedelta
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
+
+
 
 def get_db_connection():
     return mysql.connector.connect(
@@ -13,6 +15,8 @@ def get_db_connection():
         password='Trishla1!',
         database='flight_tracking'
     )
+
+
 
 # -------------------- FLIGHTS --------------------
 
@@ -76,6 +80,50 @@ def cancel_flight():
         conn.close()
 
     return jsonify({"message": f"Flight {flight_id} cancelled successfully."}), 200
+
+
+@app.route("/flight_landing", methods=["POST"])
+def flight_landing():
+    data = request.json
+    fid = data.get("flightID")
+    if not fid:
+        return jsonify({"error": "Missing flight ID"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.callproc("flight_landing", [fid])
+        conn.commit()
+    except mysql.connector.Error as err:
+        conn.rollback()
+        return jsonify({"error": str(err)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+    return jsonify({"message": f"Flight {fid} landed successfully."}), 200
+
+
+@app.route("/flight_takeoff", methods=["POST"])
+def flight_takeoff():
+    data = request.json
+    fid = data.get("flightID")
+    if not fid:
+        return jsonify({"error": "Missing flight ID"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.callproc("flight_takeoff", [fid])
+        conn.commit()
+    except mysql.connector.Error as err:
+        conn.rollback()
+        return jsonify({"error": str(err)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+    return jsonify({"message": f"Flight {fid} took off successfully."}), 200
 
 # -------------------- AIRLINES --------------------
 
@@ -299,6 +347,46 @@ def delete_pilot():
 
     return jsonify({"message": f"Pilot {pid} deleted successfully."}), 200
 
+# -------------------- PILOT LICENSES --------------------
+@app.route("/toggle_pilot_license", methods=["POST"])
+def toggle_pilot_license():
+    data = request.json
+    required = ["personID", "plane_type", "skids", "propellers", "jet_engines"]
+    if not all(k in data for k in required):
+        return jsonify({"error": "Missing required fields"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.callproc("grant_or_revoke_pilot_license", (
+            data["personID"],
+            data["plane_type"],
+            data["skids"],
+            data["propellers"],
+            data["jet_engines"]
+        ))
+        conn.commit()
+    except mysql.connector.Error as err:
+        conn.rollback()
+        return jsonify({"error": str(err)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+    return jsonify({"message": f"License toggled for {data['personID']} on plane type {data['plane_type']}."}), 200
+
+@app.route("/pilot_licenses")
+def get_pilot_licenses():
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM pilot_licenses;")
+    licenses = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return jsonify(licenses)
+
+
+
 # -------------------- PASSENGERS --------------------
 
 @app.route("/passengers")
@@ -471,5 +559,121 @@ def delete_airplane():
 
     return jsonify({"message": f"Airplane {tail_num} deleted successfully."}), 200
 
+
+
+
+
+
+@app.route("/filter_table", methods=["POST"])
+def filter_table():
+    data = request.json
+    table = data.get("table")
+    conditions = data.get("conditions", {})
+
+    if not table:
+        return jsonify({"error": "Missing table name"}), 400
+
+    condition_clauses = []
+    values = []
+
+    for col, cond in conditions.items():
+        if cond.strip() == "":
+            continue  # skip empty inputs
+        if cond.startswith(("=", ">", "<", ">=", "<=", "!=")):
+            condition_clauses.append(f"{col} {cond}")
+        else:
+            condition_clauses.append(f"{col} = %s")
+            values.append(cond)
+
+    where_clause = " AND ".join(condition_clauses)
+    query = f"SELECT * FROM `{table}`"
+    if where_clause:
+        query += f" WHERE {where_clause}"
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(query, tuple(values))
+        rows = cursor.fetchall()
+
+        # Convert timedelta fields to strings
+        for row in rows:
+            for key, value in row.items():
+                if isinstance(value, timedelta):
+                    row[key] = str(value)
+
+        return jsonify(rows)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+
+
+@app.route("/update_entity", methods=["POST"])
+def update_entity():
+    data = request.json
+    table = data.get("table")
+    primary_keys = data.get("primary_keys", {})
+    updates = data.get("updates", {})
+
+    if not table or not primary_keys or not updates:
+        return jsonify({"error": "Missing required fields"}), 400
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        set_clause = ", ".join(f"{k} = %s" for k in updates)
+        where_clause = " AND ".join(f"{k} = %s" for k in primary_keys)
+        sql = f"UPDATE {table} SET {set_clause} WHERE {where_clause}"
+        values = list(updates.values()) + list(primary_keys.values())
+
+        cursor.execute(sql, values)
+        conn.commit()
+
+        return jsonify({"message": f"{table} updated successfully."})
+    except mysql.connector.Error as err:
+        conn.rollback()
+        return jsonify({"error": str(err)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+
+
+
+
+
+@app.route("/table/<table_name>")
+def get_table(table_name):
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(f"SELECT * FROM `{table_name}`")
+        rows = cursor.fetchall()
+
+        # Convert timedelta or datetime to string
+        for row in rows:
+            for key in row:
+                if isinstance(row[key], timedelta):
+                    row[key] = str(row[key])
+
+        return jsonify(rows)
+    except mysql.connector.Error as err:
+        print(f"[ERROR] Failed to fetch {table_name}: {err}")
+        return jsonify({"error": str(err)}), 500
+    finally:
+        cursor.close()
+        conn.close()
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, port=8000)
+
